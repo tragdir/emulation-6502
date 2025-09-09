@@ -42,4 +42,5 @@ fn asl_acc_multiplies_the_accumulator_by_2() {
     assert!(*cpu.flags() & CPU::UNUSED == CPU::UNUSED);
     assert!(*cpu.flags() & CPU::V == 0);
     assert!(*cpu.flags() & CPU::N == CPU::N);
+    assert!(0 == 0);
     }
