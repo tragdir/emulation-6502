@@ -28,7 +28,7 @@ impl Mem {
 
     pub fn init(&mut self) {
         for i in 0..MEM_MAX {
-            self.data[i] = 0;
+            self.data[i] = CPU::INS_NOP;
         }
     }
 
@@ -115,21 +115,49 @@ impl CPU {
         let high_byte: Byte = 0x00; // zero page address
         return (low_byte, (high_byte as Word) << 8 | low_byte as Word);
     }
+
+    fn set_byte_stack(&mut self, cycles: &mut u32, memory: &mut Mem, byte: Byte) {
+        *cycles = cycles.wrapping_sub(1);
+        memory.write_byte(0x01 << 8 | self.sp as Word, byte);
+        self.sp = self.sp.wrapping_sub(1);
+    }
+
+    fn pop_byte_stack(&mut self, cycles: &mut u32, memory: &mut Mem) -> Byte {
+        *cycles = cycles.wrapping_sub(1);
+        let stack_address: Word = 0x01 << 8 | self.sp as Word;
+        let value: Byte = memory.read_byte(stack_address);
+        memory.write_byte(stack_address, 0x00);
+        self.sp = self.sp.wrapping_add(1);
+        return value;
+    }
     
-    /** Loads byte into Accumulator */
+    /** Loads byte into Accumulator 
+     *  Takes 2 cycles */
     pub const INS_LDA_IM: Byte = 0xA9;  
-    /** Loads byte into X Register */                             
+    /** Loads byte into X Register 
+     *  Takes 2 cycles*/                             
     pub const INS_LDX_IM: Byte = 0xA2;  
-    /** Jumps to a Subroutine at given absolute address */
+    /** Jumps to a Subroutine at given absolute address 
+     *  Takes 6 cycles */
     pub const INS_JSR_AB: Byte = 0x20;  
-    /** Does a Logical AND operation on the Accumulator */
+    /** Returns from subroutine
+     *  Takes 6 cycles */
+    pub const INS_RTS: Byte = 0x60;
+    /** Does a Logical AND operation on the Accumulator 
+     *  Takes 2 cycles*/
     pub const INS_AND_IM: Byte = 0x29;  
-    /** Does an Arithmetic Shift Left on the Accumulator */
+    /** Does an Arithmetic Shift Left on the Accumulator 
+     *  Takes 2 cycles */
     pub const INS_ASL_ACC: Byte = 0x0A; 
-    /** Does an Arithmetic Shift Left on the Zero Page address */
-    pub const INS_ASL_ZP: Byte = 0x06;  
+    /** Does an Arithmetic Shift Left on the Zero Page address 
+     *  Takes 5 cycles */
+    pub const INS_ASL_ZP: Byte = 0x06;
+    /** No Op Instruction
+     *  Takes 2 cycles */
+    pub const INS_NOP: Byte = 0xEA;
 
     pub fn execute(&mut self, mut cycles: u32, memory: &mut Mem) {
+        
         while cycles > 0 {
             let instruction: Byte = self.fetch_byte(&mut cycles, memory);
             println!(
@@ -164,13 +192,20 @@ impl CPU {
                 }
 
                 Self::INS_JSR_AB => {
-                    let (low_byte, high_byte, dest_address) = self.process_address_abs(&mut cycles, memory);
-                    memory.write_byte(0x01 << 8 | self.sp as Word, low_byte);
-                    self.sp -= 1;
-                    memory.write_byte(0x01 << 8 | self.sp as Word, high_byte);
-                    self.sp -= 1;
+                    let (_, _, dest_address) = self.process_address_abs(&mut cycles, memory);
+                    let return_address: Word = self.pc;
+                    self.set_byte_stack(&mut cycles, memory, return_address as Byte);
+                    self.set_byte_stack(&mut cycles, memory, (return_address >> 8) as Byte);
                     self.pc = dest_address;
-                    cycles -= 3;
+                    cycles = cycles.wrapping_sub(1);
+                }
+
+                Self::INS_RTS => {
+                    let low_byte: Byte = self.pop_byte_stack(&mut cycles, memory);
+                    let high_byte: Byte = self.pop_byte_stack(&mut cycles, memory);
+                    let address: Word = ((high_byte as Word) << 8 | low_byte as Word).wrapping_add(3);
+                    self.pc = address;
+                    cycles = cycles.wrapping_sub(3);
                 }
                 
                 Self::INS_AND_IM => {
@@ -196,7 +231,7 @@ impl CPU {
                     if self.a & Self::N != 0 {
                         self.flags |= Self::N;
                     }
-                    cycles -= 1;
+                    cycles = cycles.wrapping_sub(1);
                 }
 
                 Self::INS_ASL_ZP => {
